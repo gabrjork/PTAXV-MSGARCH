@@ -157,9 +157,6 @@ ggsave("volret_ptaxv.png", p5, width = 8, height = 6, dpi = 100, bg = "transpare
 
 
 
-
-
-
 ####### ======== Estatísticas descritivas dos log-retornos ======= ########
 # Remover NAs
 retornos <- na.omit(ptaxv$ret)
@@ -225,18 +222,13 @@ resumo_sinal <- data.frame(
 
 print(resumo_sinal)
 
-# Salvar em Excel com múltiplas planilhas
-write_xlsx(
-  list(
-    "Estatisticas_Descritivas" = stats,
-    "Distribuicao_Sinais" = resumo_sinal
-  ),
-  "estatisticas_descritivas_ptaxv.xlsx"
-)
-
 
 ###### ======= Preparando para o GARCH ======== #######
-#Testes de estacionariedade
+
+# Teste de não-linearidade de BDS
+bds_test <- bds.test(ptaxv$ret, m = 2)
+
+# Testes de estacionariedade
 adf_test <- ur.df(ptaxv$ret, type = "none", selectlags = "AIC")
 summary(adf_test)
 
@@ -284,6 +276,8 @@ spec_ms <- MSGARCH::CreateSpec(
 print(spec_ms)
 
 
+
+
 ### Estimação do Modelo
 
 # A função FitML implementa a Estimação por Máxima Verossimilhança (MLE).
@@ -301,18 +295,10 @@ summary_df <- data.frame(
   Output = resultado_txt
 )
 
-# Adicionar ao Excel existente
-write_xlsx(
-  list(
-    "Estatisticas_Descritivas" = stats,
-    "Distribuicao_Sinais" = resumo_sinal,
-    "Summary_MSGARCH" = summary_df  # Nova aba
-  ),
-  "estatisticas_descritivas_ptaxv.xlsx"
-)
-
 # Repetindo o sumário para visualização
 summary(fit_ms)
+
+
 
 
 ###### ======== Visualização dos Regimes ======= ########
@@ -426,6 +412,61 @@ ggsave("grafico8_crise_50pct.png", p8, width = 10, height = 7, dpi = 150, bg = "
 
 
 
+### ==== Extraindo a volatilidade condicional estimada pelo modelo GARCH ====== #####
+
+# Extrair a série de volatilidade condicional esperada (desvio padrão)
+vol_condicional_esperada <- Volatility(fit_ms) # Ou sigma(fit_ms)
+
+# Verificar as primeiras e últimas observações
+head(vol_condicional_esperada)
+tail(vol_condicional_esperada)
+
+class(vol_condicional_esperada)
+
+# Adicionar a volatilidade estimada ao nosso data frame ptaxv
+ptaxv$vol_estimada <- as.numeric(vol_condicional_esperada)
+
+
+### Criando o Gráfico da Volatilidade Condicional Estimada com Regimes de Crise
+# Gráfico 9: Volatilidade Condicional Estimada com Regimes de Crise
+p9 <- ggplot(ptaxv, aes(x = data)) +
+    
+    # Camada 1: Regiões Sombreadas APENAS para os períodos de crise (>75%)
+    # Usa o dataframe 'periodos_crise'
+    geom_rect(
+        data = periodos_crise,
+        aes(xmin = data - 0.5, xmax = data + 0.5, ymin = -Inf, ymax = Inf),
+        fill = "red",
+        alpha = 0.3 # Ajuste a transparência se necessário (0.3 é mais suave)
+    ) +
+    
+    # Camada 2: Linha da Volatilidade Condicional Estimada (em % ao dia)
+    # Usa o dataframe completo 'ptaxv'
+    geom_line(aes(y = vol_estimada * 100), color = "purple", linewidth = 0.6) +
+    
+    # Legendas e Títulos
+    labs(
+        title = "Volatilidade Condicional Estimada e Períodos de Crise",
+        subtitle = "A área sombreada destaca os dias identificados como regime de crise com alta confiança",
+        x = "Data",
+        y = "Volatilidade Estimada (% ao dia)"
+    ) +
+    
+    # Estética e Configurações
+    theme_classic() +
+    theme(
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 9),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+        # Legenda não necessária
+    )
+
+print(p9)
+ggsave("grafico_volatilidade_com_regimes.png", p9, width = 10, height = 7, dpi = 150, bg = "transparent")
+
+
+
+
 
 ###### ======= Análise Ex-Post das Médias dos Regimes ===== #######
 
@@ -451,9 +492,6 @@ teste_t <- t.test(ret ~ regime_classificado, data = ptaxv)
 print("Teste t para a Diferença de Médias entre Regimes:")
 print(teste_t)
 
-
-
-
 # Capturar resultado do teste t como texto
 teste_t_output <- capture.output(print(teste_t))
 
@@ -462,16 +500,18 @@ teste_t_df <- data.frame(
   Output = teste_t_output
 )
 
+
+
 # Atualizar Excel com as novas análises
 write_xlsx(
-  list(
+    list(
     "Estatisticas_Descritivas" = stats,
     "Distribuicao_Sinais" = resumo_sinal,
     "Summary_MSGARCH" = summary_df,
     "Medias_por_Regime" = medias_por_regime,
     "Teste_t_Regimes" = teste_t_df
-  ),
-  "estatisticas_descritivas_ptaxv.xlsx"
+    ),
+"estatisticas_descritivas_MSGARCH.xlsx"
 )
 
 beep(2)
